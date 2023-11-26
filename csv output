@@ -1,0 +1,182 @@
+WITH T0 AS (
+SELECT 
+	app_download_key
+  ,user_id
+  ,platform
+  ,coalesce(age_range, 'Unknown') age_range
+  ,date(download_ts) date_download
+  ,signup_ts
+FROM app_downloads 
+LEFT JOIN signups  ON app_download_key = session_id
+),
+
+downloads AS (
+SELECT 
+	platform
+  ,age_range
+  ,date_download
+  ,COUNT(DISTINCT app_download_key) cnt_users
+  ,NULL::bigint AS cnt_rides
+FROM T0
+GROUP BY 
+  platform
+  ,age_range
+  ,date_download
+),
+  
+signup AS (
+SELECT  
+	platform
+  ,T0.age_range
+  ,date_download
+  ,COUNT(DISTINCT user_id)  cnt_users
+  ,NULL::bigint AS cnt_rides
+FROM signups s
+LEFT JOIN T0 using(user_id)
+WHERE s.signup_ts IS NOT NULL
+GROUP BY 
+  platform
+  ,T0.age_range
+  ,date_download
+),
+
+
+request_ride AS (
+SELECT  
+	platform
+  ,age_range
+  ,date_download
+  ,COUNT(DISTINCT user_id)  cnt_users
+  ,COUNT(ride_id)  cnt_rides
+FROM ride_requests
+LEFT JOIN T0 USING(user_id)
+WHERE request_ts IS NOT NULL
+GROUP BY 
+  platform
+  ,T0.age_range
+  ,date_download
+),
+
+driver_acceptance AS (
+SELECT  
+	platform
+  ,age_range
+  ,date_download
+  ,COUNT(DISTINCT user_id)  cnt_users
+  ,COUNT(ride_id)  cnt_rides
+FROM ride_requests
+LEFT JOIN T0 USING(user_id)
+WHERE accept_ts IS NOT NULL
+GROUP BY 
+  platform
+  ,T0.age_range
+  ,date_download
+),
+
+ride AS (
+SELECT  
+	platform
+  ,age_range
+  ,date_download
+  ,COUNT(DISTINCT user_id)  cnt_users
+  ,COUNT(ride_id)  cnt_rides
+FROM ride_requests
+LEFT JOIN T0 USING(user_id)
+WHERE dropoff_ts IS NOT NULL
+GROUP BY 
+  platform
+  ,T0.age_range
+  ,date_download
+),
+
+payment AS (
+SELECT  
+	platform
+  ,age_range
+  ,date_download
+  ,COUNT(DISTINCT user_id)  cnt_users
+  ,COUNT(transactions.ride_id)  cnt_rides
+FROM transactions
+LEFT JOIN ride_requests USING(ride_id)
+LEFT JOIN T0 USING(user_id)
+WHERE charge_status = 'Approved'
+GROUP BY 
+  platform
+  ,T0.age_range
+  ,date_download
+),
+
+review AS (
+SELECT  
+	platform
+  ,age_range
+  ,date_download
+  ,COUNT(DISTINCT user_id)  cnt_users
+  ,COUNT(ride_id)  cnt_rides
+FROM reviews
+LEFT JOIN T0 USING(user_id)
+GROUP BY 
+  platform
+  ,T0.age_range
+  ,date_download
+)
+
+SELECT 
+	1 AS funnel_step
+  ,'App Download' AS funnel_name
+  ,*
+FROM downloads
+
+
+UNION 
+	
+SELECT 
+	2 AS funnel_step 
+  ,'Signup' AS funnel_name
+  ,*
+FROM signup
+
+UNION 
+
+SELECT 
+	3 AS funnel_step 
+  ,'Request Ride' AS funnel_name
+  ,*  
+FROM request_ride
+
+UNION 
+
+SELECT 
+	4 AS funnel_step 
+  ,'Driver Acceptance' AS funnel_name
+  ,* 
+FROM driver_acceptance
+
+UNION 
+
+SELECT 
+	5 AS funnel_step 
+  ,'Ride' AS funnel_name
+  ,*
+FROM ride
+
+UNION 
+
+SELECT 
+	6 AS funnel_step 
+  ,'Payment' AS funnel_name
+  ,* 
+FROM payment
+
+UNION 
+
+SELECT 
+	7 AS funnel_step 
+  ,'Review' AS funnel_name
+  ,*
+FROM review
+
+ORDER BY funnel_step, platform,age_range, date_download
+
+
+
